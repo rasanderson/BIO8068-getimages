@@ -1,0 +1,97 @@
+---
+title: "Using wildlife images from Citizen Science databases"
+subtitle: "BIO8068 Data visualisation in Ecology"
+output:
+  word_document:
+    reference_docx: template.docx
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rinat)
+library(sf)
+
+source("download_images.R")
+```
+
+# Introduction
+You may have noticed from looking at some of the Citizen Science databases we have explored earlier that records often have photographs associated with them. Go back and look at the National Biodiversity Network (NBN Atlas), Global Biodiversity Information Facility (GBIF) and xeno-canto birdsong databases and you'll see that some, but not all, records have photographs. The quality of photographs is extremely variable, and it is usually the more recently submitted records that are likely to have photographs.
+
+The international iNaturalist website <https://www.inaturalist.org/> and UK-based iRecord website <https://www.brc.ac.uk/irecord/> both provide access to high quality Citizen Science datasets. Both databases have mobile phone apps through which users can submit records, and as a result a high proportion of records include photographs. The UK iRecord site is more restricted in that it does not allow general downloading of images (although they can be viewed on the website).
+
+# The "data bottleneck" in deep learning
+You have already created a simple Convolutional Neural Network (CNN) to identify different species, and this required you to have lots of photographs that had already been labelled, that you could then put into your training or validation datasets to create the models. One problem is obtaining sufficient data for machine learning models that has already been labelled correctly. Often this process has to be done by hand, and is time consuming.
+
+# Aims and objectives
+In this workshop you'll learn how to quickly obtain images from the iNaturalist Citizen Science database that can then be used in deep learning models. It will give you an understanding of the problems of data quality that can arise, as well as better technical insights. We shall pick several contrasting butterfly species as an example to work with.
+
+# Bulk download brimstone butterfly images
+Begin by loading the `rinat` package with `library(rinat)` which provides useful utility functions such as `get_inat_obs` that you have already used to retrieve records. You should also load the `sf` package with `library(sf)` as iNaturalist is an international biodiversity website, and for the purposes of this practical exercise we are going to restrict our search to Great Britain. Actually downloading the images takes a bit of R coding, and requires some additional packages to be installed. I have prepared a script, which will setup the additional packages, in particular `RCurl` for you, and also create a function called `download_images()` which does the hard work of downloading and renaming images. Finally, we shall define a bounding box for Great Britain based on the `gb_simple.RDS` file you have already used.
+
+```{r, eval=FALSE}
+library(rinat)
+library(sf)
+
+# Both download_images.R and gb_simple.RDS available on Canvas
+source("download_images.R") 
+gb_ll <- readRDS("gb_simple.RDS")
+```
+
+Once you have setup your working environment, we can search for records with the `get_inat_obs()` function. Look at the help for this function and you will see that it is quite flexible, in that you can specify a particular month or year. We will restrict our search to a maximum of 1000 records, and specify they must be of "research" quality.
+
+We'll begin by searching for records of the brimstone butterfly, _Gonepteryx rhamni_ <https://butterfly-conservation.org/butterflies/brimstone> You could do a general searh for "brimstone" but this would also return records for the completely different brimstone moth _Opisthograptis luteolata_. They are both yellow in colour, but common names can be misleading, so stick to the Latin names:
+
+```{r}
+brimstone_recs <-  get_inat_obs(taxon_name  = "Gonepteryx rhamni",
+                               bounds = gb_ll,
+                               quality = "research",
+                               # month=6,   # Month can be set.
+                               # year=2018, # Year can be set.
+                               maxresults = 500)
+```
+
+If you look at the records, you'll see that most of them have a URL to the actual image. If you copy a URL into your web browser you can have a look at one of them. If you wanted, you could `filter` your results, remember to `library(dplyr)`, at this stage for example to remove any records tagged as larvae rather than adults. Unfortunately, in general this sort of information is missing for most records, so is hard to automate. However, in the UK the larvae are most active May-July, so you could always `filter` out records for those months if you find too many caterpillar photographs.
+
+Now use the `download_images()` function to retrieve the images. This has the following arguments:
+
+* `spp_recs` The list of records from iNaturalist, possibly after a `filter` to improve quality (required)
+* `spp_folder` The name of the folder into which the image files will be saved (required)
+* `image_folder` By default this is a subfolder within your RStudio Project called `images` and will be created for you if it does not exist (optional)
+
+Depending on the speed of your internet connection it may take 30 minutes or more to download a large number of images. A popup screen will indicate progress, so you will have an understanding of how long it is likely to take:
+
+```{r, eval=FALSE}
+download_images(spp_recs = brimstone_recs, spp_folder = "brimstone")
+```
+
+As the files download, you'll notice that they all have exactly the same name of `medium.jpg` so the `download_images()` function renames them `spp_1.jpg`, `spp_2.jpg`, `spp_3.jpg` etc. to avoid over-writing. They will be stored in a subfolder called `brimstone` within your `images` folder. Each individual file is fairly small, but collectively your downloaded images will probably be over 50 Mb. Go to the `brimstone` subfolder in File Explorer (Windows) or Finder (Mac) and look at some of them. Most of mine are of adult butterflies, but there are a small number of images with larvae, or the butterfly is difficult to see. There are also quite a lot of images where the main object in the photograph is actually a flower from which the butterflies are collecting nectar, typically purple or pink-coloured flowers. Be alert that if you train a model on other species of butterflies that have similar feeding preferences the model may learn to identify the flowers, rather than the butterflies!
+
+# Bulk download holly blue and orange tip butterfly records and images
+Now we'll repeat the process for two other species of common butterflies in a similar way, the holly blue <https://butterfly-conservation.org/butterflies/holly-blue> and the orange tip <https://butterfly-conservation.org/butterflies/orange-tip>:
+
+```{r}
+# Holly blue; Celastrina argiolus
+hollyblue_recs <-  get_inat_obs(taxon_name  = "Celastrina argiolus",
+                               bounds = gb_ll,
+                               quality = "research",
+                               maxresults = 500)
+
+
+# Orange tip; Anthocharis cardamines
+orangetip_recs <-  get_inat_obs(taxon_name  = "Anthocharis cardamines",
+                               bounds = gb_ll,
+                               quality = "research",
+                               maxresults = 500)
+```
+
+One thing to be alert to with both these species is that the males are much more brightly coloured than the females. The overwhelming majority of records of butterflies on iNaturalist do not unfortunately distinguish between male and female photographs, and this will decrease the accuracy of any deep learning models. After you have downloaded the records, again explore them using `View(hollyblue_recs)` or `View(orangetip_recs)`. Nearly all the records include a link to a photograph.
+
+Next download the images, which will be stored in two subfolders, named accordingly, within your `images` folder. You may want to make a cup of tea or coffee whilst the downloads take place...
+
+```{r, eval=FALSE}
+download_images(spp_recs = hollyblue_recs, spp_folder = "hollyblue")
+download_images(spp_recs = orangetip_recs, spp_folder = "orangetip")
+```
+

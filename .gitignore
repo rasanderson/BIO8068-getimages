@@ -37,3 +37,9 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+wildlife_images_CS.docx
+wildlife_images_CS.pdf
+wildlife_images_CS.html
+
+images/*
