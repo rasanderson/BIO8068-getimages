@@ -43,3 +43,6 @@ wildlife_images_CS.pdf
 wildlife_images_CS.html
 
 images/*
+train_valid/*
+
+animals_simple.hdf5

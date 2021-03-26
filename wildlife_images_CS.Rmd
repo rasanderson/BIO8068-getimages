@@ -12,8 +12,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 library(rinat)
 library(sf)
+library(keras)
 
 source("download_images.R")
+gb_ll <- readRDS("gb_simple.RDS")
 ```
 
 # Introduction
@@ -43,7 +45,7 @@ Once you have setup your working environment, we can search for records with the
 
 We'll begin by searching for records of the brimstone butterfly, _Gonepteryx rhamni_ <https://butterfly-conservation.org/butterflies/brimstone> You could do a general searh for "brimstone" but this would also return records for the completely different brimstone moth _Opisthograptis luteolata_. They are both yellow in colour, but common names can be misleading, so stick to the Latin names:
 
-```{r}
+```{r, eval=FALSE}
 brimstone_recs <-  get_inat_obs(taxon_name  = "Gonepteryx rhamni",
                                bounds = gb_ll,
                                quality = "research",
@@ -71,7 +73,7 @@ As the files download, you'll notice that they all have exactly the same name of
 # Bulk download holly blue and orange tip butterfly records and images
 Now we'll repeat the process for two other species of common butterflies in a similar way, the holly blue <https://butterfly-conservation.org/butterflies/holly-blue> and the orange tip <https://butterfly-conservation.org/butterflies/orange-tip>:
 
-```{r}
+```{r, eval=FALSE}
 # Holly blue; Celastrina argiolus
 hollyblue_recs <-  get_inat_obs(taxon_name  = "Celastrina argiolus",
                                bounds = gb_ll,
@@ -95,3 +97,229 @@ download_images(spp_recs = hollyblue_recs, spp_folder = "hollyblue")
 download_images(spp_recs = orangetip_recs, spp_folder = "orangetip")
 ```
 
+If you look at the photographs in the `hollyblue` and `orangetip` subfolders, you'll notice that the imagery for the latter is not as well-defined. This is likely to give poorer performance in any deep-learning model.
+
+## Split into training and validation sets
+Ideally we would have several thousand images for each of our three species, indeed many deep learning approaches uses tens of thousands of images. However I did not want you to have to wait too long to download the images, or do the training, but keep this weakness in mind when you analyse the data. We will split the images into 400 for training, and 100 for validation. You could create the appropriate folder tree in File Explorer or Finder, but it is easier to do in R. We will copy the images into a folder called `train_valid` and split them accordingly.
+
+```{r, echo=FALSE, eval=FALSE}
+# Create the 6 subfolders within the train_valid tree
+dir.create("train_valid/train/brimstone", recursive=TRUE, showWarnings=FALSE)
+dir.create("train_valid/train/hollyblue", recursive=TRUE, showWarnings=FALSE)
+dir.create("train_valid/train/orangetip", recursive=TRUE, showWarnings=FALSE)
+dir.create("train_valid/valid/brimstone", recursive=TRUE, showWarnings=FALSE)
+dir.create("train_valid/valid/hollyblue", recursive=TRUE, showWarnings=FALSE)
+dir.create("train_valid/valid/orangetip", recursive=TRUE, showWarnings=FALSE)
+```
+
+```{r, eval=FALSE}
+# Create the 6 subfolders within the train_valid tree
+dir.create("train_valid/train/brimstone", recursive=TRUE)
+dir.create("train_valid/train/hollyblue", recursive=TRUE)
+dir.create("train_valid/train/orangetip", recursive=TRUE)
+dir.create("train_valid/valid/brimstone", recursive=TRUE)
+dir.create("train_valid/valid/hollyblue", recursive=TRUE)
+dir.create("train_valid/valid/orangetip", recursive=TRUE)
+```
+
+Note that to do a deep learning model strictly correct we would have such a large dataset that we could split it into 3 datasets, "training", "validation" and "testing". The test dataset is not used at all as the model is built and validated, and simply for an assessment of the reliability of the final predictions. As we have 1500 files to process, it will take 2 to 3 minutes to copy them.
+
+```{r, eval=FALSE}
+# Now copy 400 images per spp into train, and 100 into valid
+set.seed(123)
+train_nos <- sort(sample(1:500, 400))
+valid_nos <- (1:500)[1:500 %in% train_nos == FALSE]
+
+# Copy over the random sets of 400 training images
+# subfolder name is "train", and uses "train_nos" for index
+for(image_file in 1:400){
+  file_src_brimstone  <- paste0("images/brimstone/spp_", train_nos[image_file], ".jpg")
+  file_dest_brimstone <- paste0("train_valid/train/brimstone/spp_", train_nos[image_file], ".jpg")
+  file_src_hollyblue  <- paste0("images/hollyblue/spp_", train_nos[image_file], ".jpg")
+  file_dest_hollyblue <- paste0("train_valid/train/hollyblue/spp_", train_nos[image_file], ".jpg")
+  file_src_orangetip  <- paste0("images/orangetip/spp_", train_nos[image_file], ".jpg")
+  file_dest_orangetip <- paste0("train_valid/train/orangetip/spp_", train_nos[image_file], ".jpg")
+  file.copy(file_src_brimstone, file_dest_brimstone)
+  file.copy(file_src_hollyblue, file_dest_hollyblue)
+  file.copy(file_src_orangetip, file_dest_orangetip)
+}
+
+# Copy over the random sets of 100 validation images
+# subfolder name is "valid" and now uses "valid_nos" as index
+for(image_file in 1:100){
+  file_src_brimstone  <- paste0("images/brimstone/spp_", valid_nos[image_file], ".jpg")
+  file_dest_brimstone <- paste0("train_valid/valid/brimstone/spp_", valid_nos[image_file], ".jpg")
+  file_src_hollyblue  <- paste0("images/hollyblue/spp_", valid_nos[image_file], ".jpg")
+  file_dest_hollyblue <- paste0("train_valid/valid/hollyblue/spp_", valid_nos[image_file], ".jpg")
+  file_src_orangetip  <- paste0("images/orangetip/spp_", valid_nos[image_file], ".jpg")
+  file_dest_orangetip <- paste0("train_valid/valid/orangetip/spp_", valid_nos[image_file], ".jpg")
+  file.copy(file_src_brimstone, file_dest_brimstone)
+  file.copy(file_src_hollyblue, file_dest_hollyblue)
+  file.copy(file_src_orangetip, file_dest_orangetip)
+}
+```
+
+## Train up your deep learning model
+Now you have downloaded your image data from iNaturalist and sorted it at random into training and validation sets, you can create a deep learning model using a convolutional neural network, similar to your earlier example. The following code is almost identical to the one you used earlier, with only some minor changes. Remember to load the `keras` package using `library(keras)` before you continue:
+
+```{r}
+# list of animals to model; these names must match folder names
+animal_list <- c("brimstone", "hollyblue", "orangetip")
+
+# number of output classes (i.e. fruits)
+output_n <- length(animal_list)
+
+# image size to scale down to (original images vary but about 400 x 500 px)
+img_width <- 150
+img_height <- 150
+target_size <- c(img_width, img_height)
+
+# Full-colour Red Green Blue = 3 channels
+channels <- 3
+
+# path to image folders
+train_image_files_path <- "train_valid\\train\\"
+valid_image_files_path <- "train_valid\\valid\\"
+```
+
+Next rescale your images to a smaller size and import them
+
+```{r}
+# Rescale from 255 to between zero and 1
+train_data_gen = image_data_generator(
+  rescale = 1/255
+)
+
+valid_data_gen <- image_data_generator(
+  rescale = 1/255
+)
+
+# training images
+train_image_array_gen <- flow_images_from_directory(train_image_files_path, 
+                                                    train_data_gen,
+                                                    target_size = target_size,
+                                                    class_mode = "categorical",
+                                                    classes = animal_list,
+                                                    seed = 42)
+
+# validation images
+valid_image_array_gen <- flow_images_from_directory(valid_image_files_path, 
+                                                    valid_data_gen,
+                                                    target_size = target_size,
+                                                    class_mode = "categorical",
+                                                    classes = animal_list,
+                                                    seed = 42)
+
+```
+
+Next, check that we seem to have the right number off classes and images:
+
+```{r check generator}
+# Check that things seem to have been read in OK
+cat("Number of images per class:")
+table(factor(train_image_array_gen$classes))
+cat("Class labels vs index mapping")
+train_image_array_gen$class_indices
+```
+
+```{r, echo=FALSE}
+detach("package:keras", unload = TRUE)
+detach("package:imager", unload = TRUE)
+```
+
+Next define some 'hyper-parameters' such as batch size for numbers of images flowing through the system with each 'epoch'
+
+```{r final setup, eval=FALSE}
+# number of training samples
+train_samples <- train_image_array_gen$n
+# number of validation samples
+valid_samples <- valid_image_array_gen$n
+
+# define batch size and number of epochs
+batch_size <- 32 # Typical default, though possibly a little high given small dataset
+epochs <- 10
+```
+
+Now you define how your CNN is structured.
+
+```{r define CNN structure, eval=FALSE}
+# initialise model
+model <- keras_model_sequential()
+
+# add layers
+model %>%
+  layer_conv_2d(filter = 32, kernel_size = c(3,3), input_shape = c(img_width, img_height, channels), activation = "relu") %>%
+
+  # Second hidden layer
+  layer_conv_2d(filter = 16, kernel_size = c(3,3), activation = "relu") %>%
+
+  # Use max pooling
+  layer_max_pooling_2d(pool_size = c(2,2)) %>%
+  layer_dropout(0.25) %>%
+  
+  # Flatten max filtered output into feature vector 
+  # and feed into dense layer
+  layer_flatten() %>%
+  layer_dense(100, activation = "relu") %>%
+  layer_dropout(0.5) %>%
+  
+  # Outputs from dense layer are projected onto output layer
+  layer_dense(output_n, activation = "softmax") 
+```
+
+
+Remember to check the CNN structure before compiling and running it
+
+```{r check CNN structure, eval=FALSE}
+print(model)
+```
+
+Define the error terms and accuracy measures. Use `categorical_crossentropy` as we have more than two species:
+
+```{r compile, eval=FALSE}
+# Compile the model
+model %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 0.0001, decay = 1e-6),
+  metrics = "accuracy"
+)
+```
+Finally, train up the model. **This is slow**. Depending on your PC, it may take more than 30 minutes to complete. On my PC it takes about 10 minutes, but runs at 100% CPU and the cooling fan comes on. I would also recommend you save all your R script before running the next code, and closing any other applications you have running. Occasionally RStudio will crash when running a deep learning model, so you need to have everything saved, and free up as much PC memory as possible.
+
+```{r train model, eval=FALSE}
+# Train the model with fit_generator
+history <- model %>% fit_generator(
+  # training data
+  train_image_array_gen,
+  
+  # epochs
+  steps_per_epoch = as.integer(train_samples / batch_size), 
+  epochs = epochs, 
+  
+  # validation data
+  validation_data = valid_image_array_gen,
+  validation_steps = as.integer(valid_samples / batch_size),
+  
+  # print progress
+  verbose = 2
+)
+```
+
+The results of the model training are stored in the `history` object, which can be plotted, and it is useful to save your model. For something small, like this example, you can simple save the R data space with the `save.image` command. For larger models, especially if you are fine-tuning them and want to compare outputs and predictions, it is better to use the dedicated Keras `save_model_hdf5` which stores it in a special hdf5 format. You can retrieve a model using the `load_model_hdf5` command.
+
+```{r plot and save results, eval=FALSE}
+plot(history)
+detach("package:imager", unload = TRUE)
+save.image("animals.RData")
+#model %>% save_model_hdf5("animals_simple.hdf5")
+```
+
+```{r, echo=FALSE}
+cnnplot <- readRDS("historyplot.RDS")
+plot(cnnplot)
+```
+
+**Note** : Your results will probably be different from mine, as you will have a different random number generator, and possibly different images from iNaturalist. There is evidence of over-training after about 6 or 7 "epochs" of training the model, so we really want to look at the results there. Even though it is based on a very small dataset, and the images are of variable quality (quite poor for many of the brimstone butterfly photos), we are nevertheless managing to hit almost 70% accuracy.
+
+## Optional - taking the analyses further
+Feel free to re-run the deep learning model with augmentation to try and improve the accuracy (see example from previous practical: the R code should function without needing major changes). You can also go into the relevant subfolders for the different butterflies and manually delete any images that seem unclear or of poor quality. If you, as a human being, don't think a photo is very good, then any deep learning model will struggle much more.
