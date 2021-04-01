@@ -2,9 +2,9 @@
 title: "Using wildlife images from Citizen Science databases"
 subtitle: "BIO8068 Data visualisation in Ecology"
 output:
+  html_document: default
   word_document:
     reference_docx: template.docx
-  html_document: default
   pdf_document: default
 ---
 
