@@ -173,6 +173,18 @@ The `flow_images_from_directory()` function batches-processes the photographs ac
 
 **Note** You could manually put your images into separate training and validation sub-folders, and define separate `image_files_paths` and omit the `subset` option, but this takes longer to configure.
 
+```{r, echo=FALSE}
+image_files_path <- "images" # path to folder with photos
+
+# list of spp to model; these names must match folder names
+animal_list <- dir(image_files_path) # Automatically pick up names
+#animal_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
+
+# number of spp classes (i.e. 3 species in this example)
+output_n <- length(animal_list)
+```
+
+
 ```{r}
 # training images
 train_image_array_gen <- flow_images_from_directory(image_files_path, 
@@ -305,7 +317,7 @@ The results of the model training are stored in the `history` object, which can 
 plot(history)
 
 ```
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 cnnplot <- readRDS("historyplot.RDS")
 plot(cnnplot)
 ```
@@ -375,7 +387,11 @@ Have a look at the contents of the `predictions` table. Each row represents one 
 
 The easiest way to confirm your suspicions is to create a confusion matrix. Simply locate the highest probability in each row, and assume that is the predicted class:
 
-```{r}
+```{r, echo=FALSE}
+predictions <- readRDS("predictions.RDS")
+```
+
+```{r, message=FALSE, warning=FALSE}
 # Create 3 x 3 table to store data
 confusion <- data.frame(matrix(0, nrow=3, ncol=3), row.names=animal_list)
 colnames(confusion) <- animal_list
@@ -402,11 +418,22 @@ The relevant Wikipedia page gives a nice summary of these statistics, from a med
 ## Making a prediction for a single image (optional)
 Finally, let's display a single image from our `test` dataset, and make a prediction for it. Remember the numbering of your images in the `test` dataset is 501-600.
 
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(keras)
+model <- readRDS("model.RDS")
+```
+
+We can display the original image in its correct colours using the `imager` package:
+
 ```{r}
 # Original image
 test_image_plt <- imager::load.image("test/hollyblue/spp_508.jpg")
 plot(test_image_plt)
+```
 
+We have to import it using the `image_load` function from Keras, and rescale, resize it etc., for use in a prediction.
+
+```{r}
 # Need to import slightly differently resizing etc. for Keras
 test_image <- image_load("test/hollyblue/spp_508.jpg",
                                   target_size = target_size)
@@ -414,12 +441,21 @@ test_image <- image_load("test/hollyblue/spp_508.jpg",
 test_image <- image_to_array(test_image)
 test_image <- array_reshape(test_image, c(1, dim(test_image)))
 test_image <- test_image/255
+```
 
+Now we can make a prediction. The next few lines calculates the predicted probability, then formats it into a nice table witht the species names.
+
+```{r, eval=FALSE}
 # Now make the prediction, and print out nicely
 pred <- model %>% predict(test_image)
 pred <- data.frame("Species" = animal_list, "Probability" = t(pred))
 pred <- pred[order(pred$Probability, decreasing=T),][1:3,]
 pred$Probability <- paste(round(100*pred$Probability,2),"%")
+pred
+```
+
+```{r, echo=FALSE}
+pred <- readRDS("pred.RDS")
 pred
 ```
 
