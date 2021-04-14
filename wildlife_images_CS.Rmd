@@ -115,7 +115,7 @@ Ideally we would have several thousand images for each of our three species, ind
 
 However, we need to manually have some totally independent images (100 per species) for testing. We'll use the files `spp_501.jpg` to `spp_600.jpg` for each species for this. We can easily move them into a separate folder with the right structure:
 
-```{r}
+```{r, eval=FALSE}
 image_files_path <- "images" # path to folder with photos
 
 # list of spp to model; these names must match folder names
@@ -362,7 +362,7 @@ There are several methods of resolving this issue of misleading accuracy scores 
 
 First of all, lets make predictions for our `test` photographs, but store the results in a `data.frame`:
 
-```{r}
+```{r, eval=FALSE}
 predictions <- model %>% 
   predict_generator(
     generator = test_images,
@@ -400,5 +400,27 @@ A couple of terms you may have heard on the news in relation to medical tests:
 The relevant Wikipedia page gives a nice summary of these statistics, from a medical perspective, but it applies to ecology <https://en.wikipedia.org/wiki/Sensitivity_and_specificity>
 
 ## Making a prediction for a single image (optional)
-Finally, let's display a single image from our `test` dataset, and make a prediction for it.
+Finally, let's display a single image from our `test` dataset, and make a prediction for it. Remember the numbering of your images in the `test` dataset is 501-600.
+
+```{r}
+# Original image
+test_image_plt <- imager::load.image("test/hollyblue/spp_508.jpg")
+plot(test_image_plt)
+
+# Need to import slightly differently resizing etc. for Keras
+test_image <- image_load("test/hollyblue/spp_508.jpg",
+                                  target_size = target_size)
+
+test_image <- image_to_array(test_image)
+test_image <- array_reshape(test_image, c(1, dim(test_image)))
+test_image <- test_image/255
+
+# Now make the prediction, and print out nicely
+pred <- model %>% predict(test_image)
+pred <- data.frame("Species" = animal_list, "Probability" = t(pred))
+pred <- pred[order(pred$Probability, decreasing=T),][1:3,]
+pred$Probability <- paste(round(100*pred$Probability,2),"%")
+pred
+```
+
 
