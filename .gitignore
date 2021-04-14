@@ -44,5 +44,6 @@ wildlife_images_CS.html
 
 images/*
 train_valid/*
+test/*
 
 animals_simple.hdf5

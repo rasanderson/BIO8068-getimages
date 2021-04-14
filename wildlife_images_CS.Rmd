@@ -41,7 +41,18 @@ source("download_images.R")
 gb_ll <- readRDS("gb_simple.RDS")
 ```
 
-Once you have setup your working environment, we can search for records with the `get_inat_obs()` function. Look at the help for this function and you will see that it is quite flexible, in that you can specify a particular month or year. We will restrict our search to a maximum of 1000 records, and specify they must be of "research" quality.
+Once you have setup your working environment, we can search for records with the `get_inat_obs()` function. Look at the help for this function and you will see that it is quite flexible, in that you can specify a particular month or year. We will restrict our search to a maximum of 600 records, and specify they must be of "research" quality. Again, I must stress that this is a very small dataset, and usually you would have far more to work with. After downloading, we will split each set of images into 3 groups:
+
+* training dataset: this is used by the machine learning model to develop its weights
+* validation dataset: during the training process, the outputs are continually compared with the validation dataset, and the weights updated to improve the fit
+* test dataset: completely independent, to check model accuracy
+
+Typical splits of the data vary, common ones being 70% train, 15% validation, 15% test, and also 80:10:10 and 60:20:20 are also common. To keep the numbers simple, we'll use 400 images for training, 100 for validation, and 100 for testing. Admittedly this is 67:17:17 ratio which is not standard! I could ask you to download 1000 images (800:100:100) but suspect the download times might make you bored.
+
+After you have downloaded the images, you'll need to put them into two sets of folders:
+
+* An `images` folder, with subfolders for each species. Images will be downloaded into this folder from iNaturalist automatically split into the training and validation sets from here
+* A `test` folder, with subfolders for each species. You will have to move the last 100 images for each species into here manually.
 
 We'll begin by searching for records of the brimstone butterfly, _Gonepteryx rhamni_ <https://butterfly-conservation.org/butterflies/brimstone> You could do a general searh for "brimstone" but this would also return records for the completely different brimstone moth _Opisthograptis luteolata_. They are both yellow in colour, but common names can be misleading, so stick to the Latin names:
 
@@ -51,7 +62,7 @@ brimstone_recs <-  get_inat_obs(taxon_name  = "Gonepteryx rhamni",
                                quality = "research",
                                # month=6,   # Month can be set.
                                # year=2018, # Year can be set.
-                               maxresults = 500)
+                               maxresults = 600)
 ```
 
 If you look at the records, you'll see that most of them have a URL to the actual image. If you copy a URL into your web browser you can have a look at one of them. If you wanted, you could `filter` your results, remember to `library(dplyr)`, at this stage for example to remove any records tagged as larvae rather than adults. Unfortunately, in general this sort of information is missing for most records, so is hard to automate. However, in the UK the larvae are most active May-July, so you could always `filter` out records for those months if you find too many caterpillar photographs.
@@ -62,7 +73,7 @@ Now use the `download_images()` function to retrieve the images. This has the fo
 * `spp_folder` The name of the folder into which the image files will be saved (required)
 * `image_folder` By default this is a subfolder within your RStudio Project called `images` and will be created for you if it does not exist (optional)
 
-Depending on the speed of your internet connection it may take 30 minutes or more to download a large number of images. A popup screen will indicate progress, so you will have an understanding of how long it is likely to take:
+Depending on the speed of your internet connection it may take 20 to 30 minutes or more to download a large number of images. A popup screen will indicate progress, so you will have an understanding of how long it is likely to take:
 
 ```{r, eval=FALSE}
 download_images(spp_recs = brimstone_recs, spp_folder = "brimstone")
@@ -78,14 +89,14 @@ Now we'll repeat the process for two other species of common butterflies in a si
 hollyblue_recs <-  get_inat_obs(taxon_name  = "Celastrina argiolus",
                                bounds = gb_ll,
                                quality = "research",
-                               maxresults = 500)
+                               maxresults = 600)
 
 
 # Orange tip; Anthocharis cardamines
 orangetip_recs <-  get_inat_obs(taxon_name  = "Anthocharis cardamines",
                                bounds = gb_ll,
                                quality = "research",
-                               maxresults = 500)
+                               maxresults = 600)
 ```
 
 One thing to be alert to with both these species is that the males are much more brightly coloured than the females. The overwhelming majority of records of butterflies on iNaturalist do not unfortunately distinguish between male and female photographs, and this will decrease the accuracy of any deep learning models. After you have downloaded the records, again explore them using `View(hollyblue_recs)` or `View(orangetip_recs)`. Nearly all the records include a link to a photograph.
@@ -99,75 +110,44 @@ download_images(spp_recs = orangetip_recs, spp_folder = "orangetip")
 
 If you look at the photographs in the `hollyblue` and `orangetip` subfolders, you'll notice that the imagery for the latter is not as well-defined. This is likely to give poorer performance in any deep-learning model.
 
-## Split into training and validation sets
-Ideally we would have several thousand images for each of our three species, indeed many deep learning approaches uses tens of thousands of images. However I did not want you to have to wait too long to download the images, or do the training, but keep this weakness in mind when you analyse the data. We will split the images into 400 for training, and 100 for validation. You could create the appropriate folder tree in File Explorer or Finder, but it is easier to do in R. We will copy the images into a folder called `train_valid` and split them accordingly.
+## Put test images into separate folder
+Ideally we would have several thousand images for each of our three species, indeed many deep learning approaches uses tens of thousands of images. However I did not want you to have to wait too long to download the images, or do the training, but keep this weakness in mind when you analyse the data. We will the first 500 for training and validation, with 80% (400 per species) for training, and 20% (100 per species) for validation. This 80:20 split can be done automatically by Keras.
 
-```{r, echo=FALSE, eval=FALSE}
-# Create the 6 subfolders within the train_valid tree
-dir.create("train_valid/train/brimstone", recursive=TRUE, showWarnings=FALSE)
-dir.create("train_valid/train/hollyblue", recursive=TRUE, showWarnings=FALSE)
-dir.create("train_valid/train/orangetip", recursive=TRUE, showWarnings=FALSE)
-dir.create("train_valid/valid/brimstone", recursive=TRUE, showWarnings=FALSE)
-dir.create("train_valid/valid/hollyblue", recursive=TRUE, showWarnings=FALSE)
-dir.create("train_valid/valid/orangetip", recursive=TRUE, showWarnings=FALSE)
-```
+However, we need to manually have some totally independent images (100 per species) for testing. We'll use the files `spp_501.jpg` to `spp_600.jpg` for each species for this. We can easily move them into a separate folder with the right structure:
 
-```{r, eval=FALSE}
-# Create the 6 subfolders within the train_valid tree
-dir.create("train_valid/train/brimstone", recursive=TRUE)
-dir.create("train_valid/train/hollyblue", recursive=TRUE)
-dir.create("train_valid/train/orangetip", recursive=TRUE)
-dir.create("train_valid/valid/brimstone", recursive=TRUE)
-dir.create("train_valid/valid/hollyblue", recursive=TRUE)
-dir.create("train_valid/valid/orangetip", recursive=TRUE)
-```
+```{r}
+image_files_path <- "images" # path to folder with photos
 
-Note that to do a deep learning model strictly correct we would have such a large dataset that we could split it into 3 datasets, "training", "validation" and "testing". The test dataset is not used at all as the model is built and validated, and simply for an assessment of the reliability of the final predictions. As we have 1500 files to process, it will take 2 to 3 minutes to copy them.
+# list of spp to model; these names must match folder names
+animal_list <- dir(image_files_path) # Automatically pick up names
+#animal_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
 
-```{r, eval=FALSE}
-# Now copy 400 images per spp into train, and 100 into valid
-set.seed(123)
-train_nos <- sort(sample(1:500, 400))
-valid_nos <- (1:500)[1:500 %in% train_nos == FALSE]
+# number of spp classes (i.e. 3 species in this example)
+output_n <- length(animal_list)
 
-# Copy over the random sets of 400 training images
-# subfolder name is "train", and uses "train_nos" for index
-for(image_file in 1:400){
-  file_src_brimstone  <- paste0("images/brimstone/spp_", train_nos[image_file], ".jpg")
-  file_dest_brimstone <- paste0("train_valid/train/brimstone/spp_", train_nos[image_file], ".jpg")
-  file_src_hollyblue  <- paste0("images/hollyblue/spp_", train_nos[image_file], ".jpg")
-  file_dest_hollyblue <- paste0("train_valid/train/hollyblue/spp_", train_nos[image_file], ".jpg")
-  file_src_orangetip  <- paste0("images/orangetip/spp_", train_nos[image_file], ".jpg")
-  file_dest_orangetip <- paste0("train_valid/train/orangetip/spp_", train_nos[image_file], ".jpg")
-  file.copy(file_src_brimstone, file_dest_brimstone)
-  file.copy(file_src_hollyblue, file_dest_hollyblue)
-  file.copy(file_src_orangetip, file_dest_orangetip)
+# Create test, and species sub-folders
+for(folder in 1:output_n){
+  dir.create(paste("test", animal_list[folder], sep="/"), recursive=TRUE)
 }
 
-# Copy over the random sets of 100 validation images
-# subfolder name is "valid" and now uses "valid_nos" as index
-for(image_file in 1:100){
-  file_src_brimstone  <- paste0("images/brimstone/spp_", valid_nos[image_file], ".jpg")
-  file_dest_brimstone <- paste0("train_valid/valid/brimstone/spp_", valid_nos[image_file], ".jpg")
-  file_src_hollyblue  <- paste0("images/hollyblue/spp_", valid_nos[image_file], ".jpg")
-  file_dest_hollyblue <- paste0("train_valid/valid/hollyblue/spp_", valid_nos[image_file], ".jpg")
-  file_src_orangetip  <- paste0("images/orangetip/spp_", valid_nos[image_file], ".jpg")
-  file_dest_orangetip <- paste0("train_valid/valid/orangetip/spp_", valid_nos[image_file], ".jpg")
-  file.copy(file_src_brimstone, file_dest_brimstone)
-  file.copy(file_src_hollyblue, file_dest_hollyblue)
-  file.copy(file_src_orangetip, file_dest_orangetip)
+# Now copy over spp_501.jpg to spp_600.jpg using two loops, deleting the photos
+# from the original images folder after the copy
+for(folder in 1:output_n){
+  for(image in 501:600){
+    src_image  <- paste0("images/", animal_list[folder], "/spp_", image, ".jpg")
+    dest_image <- paste0("test/"  , animal_list[folder], "/spp_", image, ".jpg")
+    file.copy(src_image, dest_image)
+    file.remove(src_image)
+  }
 }
 ```
+
 
 ## Train up your deep learning model
+### Initial setup
 Now you have downloaded your image data from iNaturalist and sorted it at random into training and validation sets, you can create a deep learning model using a convolutional neural network, similar to your earlier example. The following code is almost identical to the one you used earlier, with only some minor changes. Remember to load the `keras` package using `library(keras)` before you continue:
 
 ```{r}
-# list of animals to model; these names must match folder names
-animal_list <- c("brimstone", "hollyblue", "orangetip")
-
-# number of output classes (i.e. fruits)
-output_n <- length(animal_list)
 
 # image size to scale down to (original images vary but about 400 x 500 px)
 img_width <- 150
@@ -176,43 +156,45 @@ target_size <- c(img_width, img_height)
 
 # Full-colour Red Green Blue = 3 channels
 channels <- 3
-
-# path to image folders
-train_image_files_path <- "train_valid\\train\\"
-valid_image_files_path <- "train_valid\\valid\\"
 ```
 
-Next rescale your images to a smaller size and import them
+Next rescale your images (255 is max colour hue) and define the proportion (20%) that will be used for validation
 
 ```{r}
 # Rescale from 255 to between zero and 1
 train_data_gen = image_data_generator(
-  rescale = 1/255
+  rescale = 1/255,
+  validation_split = 0.2
 )
+```
 
-valid_data_gen <- image_data_generator(
-  rescale = 1/255
-)
+### Reading all the images from a folder
+The `flow_images_from_directory()` function batches-processes the photographs according to the `image_data_generator()` defined above. We call it twice, once to define the images for training, and once for the validation. To ensure reproducibility, so you get the same results each time you run it, I've included a random number generator `seed`, although note that you will get slightly different results to me. The `subset` option defines whether the images will be assigned to the training or validation sets.
 
+**Note** You could manually put your images into separate training and validation sub-folders, and define separate `image_files_paths` and omit the `subset` option, but this takes longer to configure.
+
+```{r}
 # training images
-train_image_array_gen <- flow_images_from_directory(train_image_files_path, 
+train_image_array_gen <- flow_images_from_directory(image_files_path, 
                                                     train_data_gen,
                                                     target_size = target_size,
                                                     class_mode = "categorical",
                                                     classes = animal_list,
+                                                    subset = "training",
                                                     seed = 42)
 
 # validation images
-valid_image_array_gen <- flow_images_from_directory(valid_image_files_path, 
-                                                    valid_data_gen,
+valid_image_array_gen <- flow_images_from_directory(image_files_path, 
+                                                    train_data_gen,
                                                     target_size = target_size,
                                                     class_mode = "categorical",
                                                     classes = animal_list,
+                                                    subset = "validation",
                                                     seed = 42)
 
 ```
 
-Next, check that we seem to have the right number off classes and images:
+When you run the two commands above, it should confirm that it has correctly identified different sets of images for the model. Next, check that we seem to have the right number off classes and images:
 
 ```{r check generator}
 # Check that things seem to have been read in OK
@@ -227,7 +209,16 @@ detach("package:keras", unload = TRUE)
 detach("package:imager", unload = TRUE)
 ```
 
-Next define some 'hyper-parameters' such as batch size for numbers of images flowing through the system with each 'epoch'
+To look at one of your images you can display it via the `as.raster()` function (note, you may get a different image displayed):
+
+```{r}
+plot(as.raster(train_image_array_gen[[1]][[1]][8,,,]))
+```
+
+You might be puzzling about all the sets of double-square brackets etc. This is because the `train_image_array_gen` is actually quite complex, containing information in an R list structure, that will be passed to Python. If you check the size of the first element with `dim(train_image_array_gen[[1]][[1]])` you will see it returns `32 150 150 3`. This is because by default Keras sub-divides your images into "batches" of 32 images for ease of processing, although you can over-ride this. The 150 x 150 is the size of your rescaled image that you defined earlier. The 3 represents RGB for red, green and blue full-colour images.
+
+### Define additional parameters and configure model
+Next define some 'hyper-parameters' such as batch size for numbers of images flowing through the system with each 'epoch'. I'll define 
 
 ```{r final setup, eval=FALSE}
 # number of training samples
@@ -236,8 +227,8 @@ train_samples <- train_image_array_gen$n
 valid_samples <- valid_image_array_gen$n
 
 # define batch size and number of epochs
-batch_size <- 32 # Typical default, though possibly a little high given small dataset
-epochs <- 10
+batch_size <- 32 # Useful to define explicitly as we'll use it later
+epochs <- 10     # How long to keep training going for
 ```
 
 Now you define how your CNN is structured.
@@ -284,7 +275,9 @@ model %>% compile(
   metrics = "accuracy"
 )
 ```
-Finally, train up the model. **This is slow**. Depending on your PC, it may take more than 30 minutes to complete. On my PC it takes about 10 minutes, but runs at 100% CPU and the cooling fan comes on. I would also recommend you save all your R script before running the next code, and closing any other applications you have running. Occasionally RStudio will crash when running a deep learning model, so you need to have everything saved, and free up as much PC memory as possible.
+
+### Set the deep-learning model off (slow!)
+Finally, train up the model. **This is slow**. Depending on your PC, it may take more than 30 minutes to complete. On my PC it takes about 10 minutes, but runs at 100% CPU and the cooling fan comes on. I would also recommend closing any other applications such as Word, Chrom etc. you have running. Occasionally RStudio will crash when running a deep learning model, so **save all your R scripts** before running the next commands.
 
 ```{r train model, eval=FALSE}
 # Train the model with fit_generator
@@ -305,21 +298,107 @@ history <- model %>% fit_generator(
 )
 ```
 
-The results of the model training are stored in the `history` object, which can be plotted, and it is useful to save your model. For something small, like this example, you can simple save the R data space with the `save.image` command. For larger models, especially if you are fine-tuning them and want to compare outputs and predictions, it is better to use the dedicated Keras `save_model_hdf5` which stores it in a special hdf5 format. You can retrieve a model using the `load_model_hdf5` command.
+### Assessing the accuracy and loss
+The results of the model training are stored in the `history` object, which can be plotted separately (note that your graph and results will differ):
 
-```{r plot and save results, eval=FALSE}
+```{r, eval=FALSE}
 plot(history)
-detach("package:imager", unload = TRUE)
-save.image("animals.RData")
-#model %>% save_model_hdf5("animals_simple.hdf5")
-```
 
+```
 ```{r, echo=FALSE}
 cnnplot <- readRDS("historyplot.RDS")
 plot(cnnplot)
 ```
 
-**Note** : Your results will probably be different from mine, as you will have a different random number generator, and possibly different images from iNaturalist. There is evidence of over-training after about 6 or 7 "epochs" of training the model, so we really want to look at the results there. Even though it is based on a very small dataset, and the images are of variable quality (quite poor for many of the brimstone butterfly photos), we are nevertheless managing to hit almost 70% accuracy.
+For me there is evidence of overtraining after about 8 epochs, in that the training loss declines, but the validation loss flattens out, or even increases slightly. The accuracy graph shows the revere pattern, in that the training accuracy increases to over 90%, but the validation accuracy is stuck at around 55 to 60%. Whilst 60% is fairly low, keep in mind that:
 
-## Optional - taking the analyses further
-Feel free to re-run the deep learning model with augmentation to try and improve the accuracy (see example from previous practical: the R code should function without needing major changes). You can also go into the relevant subfolders for the different butterflies and manually delete any images that seem unclear or of poor quality. If you, as a human being, don't think a photo is very good, then any deep learning model will struggle much more.
+* you are working on a very small dataset, with only 400 photos per species to build the model
+* the quality of the images is quite variable. Some of the photos I have used include butterfly eggs, larvae or pupae, rather than adults.
+
+## Saving your model for future use
+It is useful to save your model so that you can re-use it later, without having to go through the whole process of re-training it. For something small, like this example, you can simple save the R data space with the `save.image` command. For larger models, especially if you are fine-tuning them and want to compare outputs and predictions, it is better to use the dedicated Keras `save_model_hdf5` which stores it in a special hdf5 format. You can retrieve a model using the `load_model_hdf5` command.
+
+```{r plot and save results, eval=FALSE}
+# The imager package also has a save.image function, so unload it to
+# avoid any confusion
+detach("package:imager", unload = TRUE)
+
+# The save.image function saves your whole R workspace
+save.image("animals.RData")
+
+# Saves only the model, with all its weights and configuration, in a special
+# hdf5 file on its own. You can use load_model_hdf5 to get it back.
+#model %>% save_model_hdf5("animals_simple.hdf5")
+```
+
+## Testing your model
+We can now test how good the model is with a completely independent dataset, that hasn't been seen by your model. In other words, the 100 photos per species in the `test` folder. We create an image_data_generator as before, and then "flow" all the images through. The one change is that we have set `shuffle = FALSE`. By default during training Keras shuffles the images to improve accuracy. However, you don't want to do this when comparing observed and predicted. We can then push the model into the `evaluate_generator()` function to display the loss and accuracy. These will always be **worse** than the ones during model training+validation, simply because the data are totally independent.
+
+```{r, eval=FALSE}
+path_test <- "test"
+
+test_data_gen <- image_data_generator(rescale = 1/255)
+
+test_images <- flow_images_from_directory(path_test,
+   test_data_gen,
+   target_size = target_size,
+   class_mode = "categorical",
+   classes = animal_list,
+   shuffle = FALSE, # do not shuffle the images around
+   batch_size = 1,  # Only 1 image at a time
+   seed = 123)
+
+# Takes about 3 minutes to run through all the images
+model %>% evaluate_generator(test_images, 
+                     steps = test_images$n)
+```
+
+For my data, I ended up with an accuracy of 58.7% which is actually only marginally poorer than that for the training+validation dataset.
+
+## A word of warning about unbalanced data (optional)
+Sometimes you may have data where the numbers of species are very unequal, e.g 500 images for a common species, but only 75 for a rare one. Such unbalanced data can skew accuracy measures, making them appear much better than they really are. Another scenario is camera trap data, where 90% of the photos might be blank, and only 10% contain an animal. If you have a poor model, it is still likely to correctly predict a blank (simply because there are so many of them). What really matters is whether it can spot what is going on in the small number of true positives.
+
+There are several methods of resolving this issue of misleading accuracy scores with unbalanced data. Whilst we don't have unbalanced data here, it's useful to look at one approach, which is to compare the observed vs predicted for each species. This can be displayed in a 'confusion matrix'; ideally all the images fall on the main diagonal.
+
+First of all, lets make predictions for our `test` photographs, but store the results in a `data.frame`:
+
+```{r}
+predictions <- model %>% 
+  predict_generator(
+    generator = test_images,
+    steps = test_images$n
+  ) %>% as.data.frame
+colnames(predictions) <- animal_list
+```
+
+Have a look at the contents of the `predictions` table. Each row represents one photograph, with the values being the probability of it belonging to each species, the sum of each row being 1.000. So, rows 1-100 are brimstone, 101-200 are holly blue and 201-300 orange tip. Scan through the table: which species has it done best on, and which worse?
+
+The easiest way to confirm your suspicions is to create a confusion matrix. Simply locate the highest probability in each row, and assume that is the predicted class:
+
+```{r}
+# Create 3 x 3 table to store data
+confusion <- data.frame(matrix(0, nrow=3, ncol=3), row.names=animal_list)
+colnames(confusion) <- animal_list
+
+obs_values <- factor(c(rep(animal_list[1],100),
+                       rep(animal_list[2], 100),
+                       rep(animal_list[3], 100)))
+pred_values <- factor(colnames(predictions)[apply(predictions, 1, which.max)])
+
+library(caret)
+conf_mat <- confusionMatrix(data = pred_values, reference = obs_values)
+conf_mat
+```
+
+The above produces a lot of output, but the `caret` package is quite useful in that it produces nearly all the relevant statistics that you need. You can see from the confusion matrix that the main problem is we heavily over-predict orange tip, especially for brimestone photographs. This might be because the latter are also relatively pale, and in some photos look light coloured. Overall, however the Kappa statistic is highly significant, showing a significant relationship between observed and predicted.
+
+A couple of terms you may have heard on the news in relation to medical tests:
+
+* Sensitivity is the proportion of positives that are correctly identified (true positive rate). So for me, whilst 94% of Orange Tips are correctly identified, only 31% and 51% of brimstone and holly blue are correct. 
+* Specificity is the proportion of negatives that are correctly identified (true negative rate). Here there are very few errors for brimstone or holly blue. i.e. when it was not a brimstone or holly blue (a negative) it was rarely incorrectly classed as one. In contrast, this was a problem with orange tips.
+
+The relevant Wikipedia page gives a nice summary of these statistics, from a medical perspective, but it applies to ecology <https://en.wikipedia.org/wiki/Sensitivity_and_specificity>
+
+## Making a prediction for a single image (optional)
+Finally, let's display a single image from our `test` dataset, and make a prediction for it.
+
