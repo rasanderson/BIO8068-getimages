@@ -2,9 +2,9 @@
 title: "Using wildlife images from Citizen Science databases"
 subtitle: "BIO8068 Data visualisation in Ecology"
 output:
-  html_document: default
   word_document:
     reference_docx: template.docx
+  html_document: default
   pdf_document: default
 ---
 
@@ -119,23 +119,23 @@ However, we need to manually have some totally independent images (100 per speci
 image_files_path <- "images" # path to folder with photos
 
 # list of spp to model; these names must match folder names
-animal_list <- dir(image_files_path) # Automatically pick up names
-#animal_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
+spp_list <- dir(image_files_path) # Automatically pick up names
+#spp_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
 
 # number of spp classes (i.e. 3 species in this example)
-output_n <- length(animal_list)
+output_n <- length(spp_list)
 
 # Create test, and species sub-folders
 for(folder in 1:output_n){
-  dir.create(paste("test", animal_list[folder], sep="/"), recursive=TRUE)
+  dir.create(paste("test", spp_list[folder], sep="/"), recursive=TRUE)
 }
 
 # Now copy over spp_501.jpg to spp_600.jpg using two loops, deleting the photos
 # from the original images folder after the copy
 for(folder in 1:output_n){
   for(image in 501:600){
-    src_image  <- paste0("images/", animal_list[folder], "/spp_", image, ".jpg")
-    dest_image <- paste0("test/"  , animal_list[folder], "/spp_", image, ".jpg")
+    src_image  <- paste0("images/", spp_list[folder], "/spp_", image, ".jpg")
+    dest_image <- paste0("test/"  , spp_list[folder], "/spp_", image, ".jpg")
     file.copy(src_image, dest_image)
     file.remove(src_image)
   }
@@ -177,11 +177,11 @@ The `flow_images_from_directory()` function batches-processes the photographs ac
 image_files_path <- "images" # path to folder with photos
 
 # list of spp to model; these names must match folder names
-animal_list <- dir(image_files_path) # Automatically pick up names
-#animal_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
+spp_list <- dir(image_files_path) # Automatically pick up names
+#spp_list <- c("brimstone", "hollyblue", "orangetip") # manual entry
 
 # number of spp classes (i.e. 3 species in this example)
-output_n <- length(animal_list)
+output_n <- length(spp_list)
 ```
 
 
@@ -191,7 +191,7 @@ train_image_array_gen <- flow_images_from_directory(image_files_path,
                                                     train_data_gen,
                                                     target_size = target_size,
                                                     class_mode = "categorical",
-                                                    classes = animal_list,
+                                                    classes = spp_list,
                                                     subset = "training",
                                                     seed = 42)
 
@@ -200,7 +200,7 @@ valid_image_array_gen <- flow_images_from_directory(image_files_path,
                                                     train_data_gen,
                                                     target_size = target_size,
                                                     class_mode = "categorical",
-                                                    classes = animal_list,
+                                                    classes = spp_list,
                                                     subset = "validation",
                                                     seed = 42)
 
@@ -351,18 +351,18 @@ path_test <- "test"
 
 test_data_gen <- image_data_generator(rescale = 1/255)
 
-test_images <- flow_images_from_directory(path_test,
+test_image_array_gen <- flow_images_from_directory(path_test,
    test_data_gen,
    target_size = target_size,
    class_mode = "categorical",
-   classes = animal_list,
+   classes = spp_list,
    shuffle = FALSE, # do not shuffle the images around
    batch_size = 1,  # Only 1 image at a time
    seed = 123)
 
 # Takes about 3 minutes to run through all the images
-model %>% evaluate_generator(test_images, 
-                     steps = test_images$n)
+model %>% evaluate_generator(test_image_array_gen, 
+                     steps = test_image_array_gen$n)
 ```
 
 For my data, I ended up with an accuracy of 58.7% which is actually only marginally poorer than that for the training+validation dataset.
@@ -377,10 +377,10 @@ First of all, lets make predictions for our `test` photographs, but store the re
 ```{r, eval=FALSE}
 predictions <- model %>% 
   predict_generator(
-    generator = test_images,
-    steps = test_images$n
+    generator = test_image_array_gen,
+    steps = test_image_array_gen$n
   ) %>% as.data.frame
-colnames(predictions) <- animal_list
+colnames(predictions) <- spp_list
 ```
 
 Have a look at the contents of the `predictions` table. Each row represents one photograph, with the values being the probability of it belonging to each species, the sum of each row being 1.000. So, rows 1-100 are brimstone, 101-200 are holly blue and 201-300 orange tip. Scan through the table: which species has it done best on, and which worse?
@@ -393,12 +393,12 @@ predictions <- readRDS("predictions.RDS")
 
 ```{r, message=FALSE, warning=FALSE}
 # Create 3 x 3 table to store data
-confusion <- data.frame(matrix(0, nrow=3, ncol=3), row.names=animal_list)
-colnames(confusion) <- animal_list
+confusion <- data.frame(matrix(0, nrow=3, ncol=3), row.names=spp_list)
+colnames(confusion) <- spp_list
 
-obs_values <- factor(c(rep(animal_list[1],100),
-                       rep(animal_list[2], 100),
-                       rep(animal_list[3], 100)))
+obs_values <- factor(c(rep(spp_list[1],100),
+                       rep(spp_list[2], 100),
+                       rep(spp_list[3], 100)))
 pred_values <- factor(colnames(predictions)[apply(predictions, 1, which.max)])
 
 library(caret)
@@ -448,7 +448,7 @@ Now we can make a prediction. The next few lines calculates the predicted probab
 ```{r, eval=FALSE}
 # Now make the prediction, and print out nicely
 pred <- model %>% predict(test_image)
-pred <- data.frame("Species" = animal_list, "Probability" = t(pred))
+pred <- data.frame("Species" = spp_list, "Probability" = t(pred))
 pred <- pred[order(pred$Probability, decreasing=T),][1:3,]
 pred$Probability <- paste(round(100*pred$Probability,2),"%")
 pred
